@@ -1,0 +1,62 @@
+# implementing batchsampler
+global:
+  debug: true
+  seed: 42
+  device: cuda
+
+amp: true
+
+train:
+  max_epoch: 6
+  folds: 5
+  shuffle: true
+
+resample:
+  method: stratified_resample
+  params:
+    n: 10
+
+augmentation:
+  train:
+#    RandomResizedCrop: {height: 512, width: 512, scale: [0.9, 1.0]}
+    Resize: { height: 256, width: 256 }
+    ToTensor: {always_apply: True}
+  valid:
+    Resize: {height: 256, width: 256}
+    ToTensor: {always_apply: True}
+
+batch_sampler:
+  sample_size: 1
+
+dataset:
+  name: GLR2021DataSetJPG
+  valid_resample:
+    n: 1
+
+loader:
+  train: {batch_size: 32, shuffle: True, num_workers: 2, pin_memory: True, drop_last: True}
+  valid: {batch_size: 256, shuffle: False, num_workers: 2, pin_memory: True, drop_last: False}
+
+model:
+  name: LandmarkNet
+  params:
+    num_classes: 81313
+    base_model: resnet50d
+
+optimizer:
+  name: Adam
+  params:
+    lr: 1.0e-3
+
+loss: CrossEntropyLoss
+
+scheduler:
+  name: CosineAnnealingWarmRestarts
+  params:
+    T_0: 6
+    T_mult: 1
+    eta_min: 1.0e-7
+
+accumulation: 2
+
+
