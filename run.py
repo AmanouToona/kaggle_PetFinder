@@ -44,7 +44,7 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel
+from models import SimpleModel, SimpleModelSig
 
 from PIL import Image
 import torchvision
@@ -441,7 +441,6 @@ def train_fn(config, meta_data):
                     images.float().to(device, non_blocking=True),
                     targets.to(device, non_blocking=True).float(),
                 )
-                sys.exit()
                 y = model(images).view(-1)
 
                 loss = loss_func(y, targets).detach()
