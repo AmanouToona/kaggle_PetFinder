@@ -380,7 +380,7 @@ def train_fn(config, meta_data):
         accumulation = config["accumulation"]
 
     for epoch in range(config["train"]["max_epoch"]):
-        logger.info(f'epoch {epoch + 1:2} / {config["train"]["max_epoch"]:2}', "*" * 20)
+        logger.info(f'epoch {epoch + 1:02} / {int(config["train"]["max_epoch"]):02} --------------------------------')
 
         model.train()
         running_loss = 0.0
@@ -436,7 +436,6 @@ def train_fn(config, meta_data):
         truths = []
         with torch.no_grad():
             for images, targets in tqdm(valid_loader):
-                print(f"{type(images)=}")
                 images, targets = (
                     images.float().to(device, non_blocking=True),
                     targets.to(device, non_blocking=True).float(),
