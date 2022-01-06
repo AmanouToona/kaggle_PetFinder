@@ -78,6 +78,10 @@ def get_file_path(s: pd.Series):
     return INPUT / "train" / f"{s['Id']}.jpg"
 
 
+def rmse(y_true, y_pred):
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
+
 # ====================================
 # DataSet
 # ====================================
