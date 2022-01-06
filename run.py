@@ -42,7 +42,7 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel, SimpleModelSig
+from models import SimpleModel, SimpleModelSig, SimpleModelDrop
 
 
 # kernel での実行時は以下の関数とモデルをべた書きする

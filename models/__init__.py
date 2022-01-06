@@ -1,1 +1,1 @@
-from .simple_model import SimpleModel, SimpleModelSig
+from .simple_model import SimpleModel, SimpleModelSig, SimpleModelDrop
