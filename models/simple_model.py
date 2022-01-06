@@ -27,6 +27,10 @@ class SimpleModel(nn.Module):
         output = self.fc(feature)
         return output
 
+    def feature(self, img):
+        feature = self.backbone(img)
+        return feature
+
 
 class SimpleModelSig(nn.Module):
     def __init__(
@@ -55,6 +59,9 @@ class SimpleModelSig(nn.Module):
         output = self.sig(x)
         return output
 
+    def feature(self, img):
+        feature = self.backbone(img)
+        return feature
 
 if __name__ == "__main__":
     model = SimpleModel()
