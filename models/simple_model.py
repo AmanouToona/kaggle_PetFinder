@@ -16,6 +16,8 @@ class SimpleModel(nn.Module):
         if hasattr(timm.models, base_model):
             self.backbone = timm.create_model(base_model, pretrained=pretrained, in_chans=in_channels)
             final_in_features = self.backbone.num_features
+            if base_model == "swin_tiny_patch4_window7_224":
+                final_in_features = self.backbone.head.out_features
             self.backbone.fc = nn.Identity()
         else:
             raise NotImplementedError
