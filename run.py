@@ -32,6 +32,8 @@ from sklearn.model_selection import StratifiedKFold, KFold
 
 import gc
 
+from sklearn.metrics import mean_squared_error
+
 from typing import List, Dict, Tuple, Optional
 
 from scipy.sparse import coo_matrix
