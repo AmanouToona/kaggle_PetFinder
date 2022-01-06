@@ -26,17 +26,13 @@ import sys
 import cv2
 
 import albumentations as A
-from albumentations.core.transforms_interface import ImageOnlyTransform, DualTransform
 from albumentations.pytorch import ToTensorV2
 
 from sklearn.model_selection import StratifiedKFold, KFold
-from sklearn.metrics import mean_squared_error
 
 import gc
 
 from typing import List, Dict, Tuple, Optional
-
-import joblib
 
 from scipy.sparse import coo_matrix
 import copy
@@ -46,10 +42,6 @@ from tqdm import tqdm
 # not kaggle environment
 from models import SimpleModel, SimpleModelSig
 
-from PIL import Image
-import torchvision
-
-import copy
 
 # kernel での実行時は以下の関数とモデルをべた書きする
 from utils import EarlyStopping, set_seed, clear_garbage, torch_faster
@@ -92,7 +84,7 @@ target_col = "Pawpularity"
 
 
 class TrainDataset(Dataset):
-    def __init__(self, df, train_mode=True, transform=None) -> None:
+    def __init__(self, df, train_mode=True, transform=Optional[List[str]]) -> None:
         super().__init__()
         self.df = df
         self.df["file_path"] = self.df.apply(get_file_path, axis=1)
