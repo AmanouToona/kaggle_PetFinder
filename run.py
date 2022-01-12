@@ -1,5 +1,6 @@
 # read config file
 import argparse
+import collections
 from scipy.sparse.construct import rand
 import yaml
 
@@ -35,7 +36,9 @@ import gc
 
 from sklearn.metrics import mean_squared_error
 
-from typing import List, Dict, Tuple, Optional
+from typing import Collection, List, Dict, Tuple, Optional
+
+from collections import defaultdict
 
 from scipy.sparse import coo_matrix
 import copy
@@ -172,7 +175,7 @@ class ReproDataset(Dataset):
         image = image / 255  # convert to 0-1
         target = self.targets[idx]
 
-        image = torch.tensor(image, dtype=torch.float)
+        # image = torch.tensor(image, dtype=torch.float)
         target = torch.tensor(target, dtype=torch.float)
         return image, target
 
@@ -434,9 +437,7 @@ def train_fn(config, meta_data):
     #  train loop
     # ====================================
     logger.debug("start train section")
-    train_losses = []
-    valid_losses = []
-    learning_rates = []
+    report = defaultdict(list)
     iteration = 0
     accumulation = 1
     if "accumulation" in config:
@@ -483,11 +484,13 @@ def train_fn(config, meta_data):
                 if config["scheduler"]["name"] == "OneCycleLR":
                     scheduler.step()
 
-        train_losses.append(running_loss / len(train_loader))
+        report["iteration"].append(iteration)
+        report["lr"].append(optimizer.param_groups[0]["lr"])
+        report["train_nn_loss"].append(running_loss / len(train_loader))
+
         logger.info(f'lr                  : {optimizer.param_groups[0]["lr"]}')
-        logger.info(f"train loss          : {train_losses[-1]:.8f}")
+        logger.info(f'train loss          : {report["train_nn_loss"][-1]:.8f}')
         logger.info(f"iteration           : {iteration}")
-        learning_rates.append(optimizer.param_groups[0]["lr"])
 
         # ====================================
         #  valid loop
@@ -524,10 +527,14 @@ def train_fn(config, meta_data):
 
                 clear_garbage()
 
-        valid_losses.append(running_loss / len(valid_loader))
-        logger.info(f"valid loss          : {valid_losses[-1]:.8f}")
+        report["valid_nn_loss"].append(running_loss / len(valid_loader))
+        logger.info(f'valid loss          : {report["valid_nn_loss"][-1]:.8f}')
+
         if "metrics" in config.keys():
-            calc_metrics(truths, preds, config["metrics"])
+            res = calc_metrics(truths, preds, config["metrics"])
+
+            for key, value in res.items():
+                report[f"valid_{key}"].append(value)
 
         loss = 0  # todo
         if config["scheduler"]["name"] == "ReduceLROnPlateau":
@@ -542,7 +549,7 @@ def train_fn(config, meta_data):
             swa_scheduler.step()
 
         # early stopping
-        if use_early_stop and early_stop.step(valid_losses[-1]):
+        if use_early_stop and early_stop.step(report["valid_nn_loss"][-1]):
             break
 
         # save model
@@ -552,11 +559,9 @@ def train_fn(config, meta_data):
 
     torch.save(model.state_dict(), f'model_trained/{config["global"]["name"]}.pth')
 
-    epochs = [i + 1 for i in range(len(train_losses))]
-    eval_df = pd.DataFrame(index=epochs, columns=["train_eval", "valid_eval", "learning_rate"])
-    eval_df["train_eval"] = train_losses
-    eval_df["valid_eval"] = valid_losses
-    eval_df["learning_rate"] = learning_rates
+    epochs = [i + 1 for i in range(len(report["train_nn_loss"]))]
+    eval_df = pd.DataFrame.from_dict(report)
+    eval_df.index = epochs
     eval_df.to_csv(OUTPUT / f'{config["global"]["name"]}_eval.csv')
 
     return preds
