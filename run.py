@@ -451,6 +451,8 @@ def train_fn(config, meta_data):
         running_loss = 0.0
         optimizer.zero_grad()
         scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
+        preds = []
+        truths = []
         for step, (images, targets) in enumerate(tqdm(train_loader)):
             images, targets = (
                 images.float().to(device, non_blocking=True),
@@ -469,6 +471,14 @@ def train_fn(config, meta_data):
             scaler.scale(loss).backward()
             running_loss += float(loss.detach()) * accumulation
 
+            if config["loss"] == "BCEWithLogitsLoss":
+                y = torch.sigmoid(y).clone().detach().to("cpu").numpy()
+            else:
+                y = y.clone().detach().to("cpu").numpy()
+
+            preds.extend(y)
+            truths.extend(targets.to("cpu").numpy())
+
             images.detach()
             targets.detach()
             del images
@@ -484,6 +494,12 @@ def train_fn(config, meta_data):
 
                 if config["scheduler"]["name"] != "ReduceOnPlateauLR":
                     scheduler.step()
+
+        if "metrics" in config.keys():
+            res = calc_metrics(truths, preds, config["metrics"])
+
+            for key, value in res.items():
+                report[f"train_{key}"].append(value)
 
         report["iteration"].append(iteration)
         report["lr"].append(optimizer.param_groups[0]["lr"])
