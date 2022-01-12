@@ -16,7 +16,7 @@ class SimpleModel(nn.Module):
         if hasattr(timm.models, base_model):
             self.backbone = timm.create_model(base_model, pretrained=pretrained, in_chans=in_channels)
             final_in_features = self.backbone.num_features
-            if base_model == "swin_tiny_patch4_window7_224":
+            if base_model in ["swin_tiny_patch4_window7_224", "swin_large_patch4_window7_224"]:
                 final_in_features = self.backbone.head.out_features
             self.backbone.fc = nn.Identity()
         else:
@@ -92,5 +92,5 @@ class SimpleModelDrop(nn.Module):
 
 
 if __name__ == "__main__":
-    model = SimpleModel()
+    model = SimpleModel("swin_large_patch4_window7_224")
     print(model)

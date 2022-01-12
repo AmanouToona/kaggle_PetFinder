@@ -1,5 +1,6 @@
 # read config file
 import argparse
+from scipy.sparse.construct import rand
 import yaml
 
 import numpy as np
@@ -42,8 +43,9 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel, SimpleModelSig, SimpleModelDrop
+from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001
 
+from PIL import Image
 
 # kernel での実行時は以下の関数とモデルをべた書きする
 from utils import EarlyStopping, set_seed, clear_garbage, torch_faster
@@ -79,7 +81,15 @@ def get_file_path(s: pd.Series):
 
 
 def rmse(y_true, y_pred):
+    y_true = np.array(y_true) * 100
+    y_pred = np.array(y_pred) * 100
     return np.sqrt(mean_squared_error(y_true, y_pred))
+
+
+def usr_rmse_score(target, y_pred):
+    y_pred = np.array(y_pred) * 100
+    target = np.array(target) * 100
+    return mean_squared_error(target, y_pred, squared=False)
 
 
 # ====================================
@@ -134,6 +144,49 @@ class GradCAMDatset(Dataset):
     def __getitem__(self, idx):
         # ToDo
         return super().__getitem__(idx)
+
+
+class ReproDataset(Dataset):
+    def __init__(self, df, transform=None) -> None:
+        super().__init__()
+        self.df = df
+        self.df["file_path"] = self.df.apply(get_file_path, axis=1)
+        self.image_filepaths = self.df["file_path"].values
+        self.targets = self.df[target_col].values
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.image_filepaths)
+
+    def __getitem__(self, idx):
+        image_filepath = self.image_filepaths[idx]
+        with open(image_filepath, "rb") as f:
+            image = Image.open(f)
+            image_rgb = image.convert("RGB")
+        image = np.array(image_rgb)
+
+        if self.transform is not None:
+            for transform in self.transform:
+                image = transform(image=image)["image"]
+
+        image = image / 255  # convert to 0-1
+        target = self.targets[idx]
+
+        image = torch.tensor(image, dtype=torch.float)
+        target = torch.tensor(target, dtype=torch.float)
+        return image, target
+
+
+def divice_norm_bias(model):
+    norm_bias_params = []
+    non_norm_bias_params = []
+    except_wd_layers = ["norm", ".bias"]
+    for n, p in model.model.named_parameters():
+        if any([nd in n for nd in except_wd_layers]):
+            norm_bias_params.append(p)
+        else:
+            non_norm_bias_params.append(p)
+    return norm_bias_params, non_norm_bias_params
 
 
 # ====================================
@@ -319,7 +372,19 @@ def train_fn(config, meta_data):
 
     # optimizer -------------------------------------------------------------
     logger.debug("preparation optimizer")
-    optimizer = getattr(torch.optim, config["optimizer"]["name"])(model.parameters(), **config["optimizer"]["params"])
+    if config["optimizer"]["name"] != "AdamW":
+        optimizer = getattr(torch.optim, config["optimizer"]["name"])(
+            model.parameters(), **config["optimizer"]["params"]
+        )
+    else:
+        norm_bias_params, non_norm_bias_params = divice_norm_bias(model)
+        optimizer = torch.optim.AdamW(
+            [{"params": norm_bias_params, "weight_decay": 0}, {"params": non_norm_bias_params, "weight_decay": 0.01}],
+            betas=(0.9, 0.99),
+            eps=1e-5,
+            lr=2e-5,
+            amsgrad=False,
+        )
 
     if "swa" in config.keys():
         use_swa = True
@@ -442,7 +507,13 @@ def train_fn(config, meta_data):
 
                 loss = loss_func(y, targets).detach()
                 running_loss += float(loss.detach())
-                preds.extend(y.to("cpu").numpy())
+
+                if config["loss"] == "BCEWithLogitsLoss":
+                    y = torch.sigmoid(y).to("cpu").numpy()
+                else:
+                    y = y.to("cpu").numpy()
+
+                preds.extend(y)
                 truths.extend(targets.to("cpu").numpy())
 
                 images.detach()
@@ -586,17 +657,25 @@ def main():
     #  make fold data
     # ====================================
     n_folds = config["train"]["fold"]
-    Fold = StratifiedKFold(n_splits=n_folds, shuffle=config["train"]["shuffle"], random_state=SEED)
-    Fold = KFold(n_splits=n_folds, shuffle=config["train"]["shuffle"], random_state=SEED)
-    del n_folds
-
-    # train_valid_indexs = list()
-    # for i, (train_index, valid_index) in enumerate(Fold.split(train_meta_data, train_meta_data["landmark_id"])):
-    #     train_valid_indexs.append((train_index, valid_index))
 
     fold_idxs = list()
-    for train_idx, valid_idx in Fold.split(train_meta_data):
-        fold_idxs.append((train_idx, valid_idx))
+    if "fold_type" in config.keys() and config["fold_type"] == "skf":
+        num_bins = int(np.floor(1 + (3.3) * (np.log2(len(train_meta_data)))))
+        fold_make = train_meta_data.copy()
+        fold_make["bins"] = pd.cut(fold_make[target_col], bins=num_bins, labels=False)
+        fold_make["fold"] = -1
+
+        Fold = StratifiedKFold(n_splits=n_folds, shuffle=True, random_state=SEED)
+        for train_idx, valid_idx in Fold.split(fold_make, fold_make["bins"]):
+            fold_idxs.append((train_idx, valid_idx))
+    else:
+        Fold = KFold(n_splits=n_folds, shuffle=config["train"]["shuffle"], random_state=SEED)
+        for train_idx, valid_idx in Fold.split(train_meta_data):
+            fold_idxs.append((train_idx, valid_idx))
+
+    del n_folds
+
+    train_meta_data[target_col] /= 100
 
     # ====================================
     #  run train valid function
@@ -604,6 +683,7 @@ def main():
     preds = []
     truths = []
     for fold_id, train_valid_index in enumerate(fold_idxs):
+        logger.info("\n")
         logger.info(f"start train fold: {fold_id:02}")
         fold_config = copy.deepcopy(config)
         fold_config["train"]["train_idx"] = train_valid_index[0]
