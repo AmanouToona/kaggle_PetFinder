@@ -28,6 +28,7 @@ import cv2
 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+import torchvision.transforms as T
 
 from sklearn.model_selection import StratifiedKFold, KFold
 
@@ -195,6 +196,23 @@ class ToTensor:
 
     def __call__(self, image: np.array) -> torch.tensor:
         return ToTensorV2()(image=image)
+
+
+class DefaultTransforms:
+    def __init__(self, **kwargs):
+        pass
+
+    def __call__(self, image: np.array) -> torch.tensor:
+        return {
+            "image": T.Compose(
+                [
+                    T.RandomHorizontalFlip(),
+                    # T.RandomVerticalFlip(),
+                    # T.RandomAffine(15, translate=(0.1, 0.1), scale=(0.9, 1.1)),
+                    T.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1),
+                ]
+            )(image)
+        }
 
 
 # ====================================
