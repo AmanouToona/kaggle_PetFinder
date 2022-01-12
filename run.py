@@ -482,7 +482,7 @@ def train_fn(config, meta_data):
                 optimizer.zero_grad()
                 clear_garbage()
 
-                if config["scheduler"]["name"] == "OneCycleLR":
+                if config["scheduler"]["name"] != "ReduceOnPlateauLR":
                     scheduler.step()
 
         report["iteration"].append(iteration)
@@ -540,10 +540,6 @@ def train_fn(config, meta_data):
         loss = 0  # todo
         if config["scheduler"]["name"] == "ReduceLROnPlateau":
             scheduler.step(loss)
-        elif config["scheduler"]["name"] == "OneCycleLR":
-            pass
-        else:
-            scheduler.step()
 
         if use_swa and epoch > config["swa"]["swa_start"]:
             swa_model.update_parameters(model)
