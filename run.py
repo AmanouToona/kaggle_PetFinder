@@ -444,6 +444,7 @@ def train_fn(config, meta_data):
         accumulation = config["accumulation"]
 
     for epoch in range(config["train"]["max_epoch"]):
+        logger.info("\n")
         logger.info(f'epoch {epoch + 1:02} / {int(config["train"]["max_epoch"]):02} --------------------------------')
 
         model.train()
