@@ -1,7 +1,7 @@
 # reproducibility of [train]Pytorch Swin+5Fold+some tips
 global:
   debug: false
-  seed: 42
+  seed: 555
   device: cuda
 
 amp: true
@@ -20,8 +20,8 @@ augmentation:
     HorizontalFlip: {p: 0.5}
     ToTensor: {always_apply: True}
   valid:
-    Resize: {height: 224, width: 224}
-    # Normalize: {mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
+    SmallestMaxSize: {max_size: 224, p: 1.0}
+    CenterCrop: {height: 224, width: 224, p: 1.0}
     ToTensor: {always_apply: True}
 
 dataset:
@@ -33,7 +33,7 @@ loader:
 model:
   name: Repro001
   params:
-    model_name: swin_tiny_patch4_window7_224
+    model_name: swin_large_patch4_window7_224
     out_features: 1
     inp_channels: 3
     pretrained: True
