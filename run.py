@@ -46,7 +46,7 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001
+from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001, NoUseMeta
 
 from PIL import Image
 
