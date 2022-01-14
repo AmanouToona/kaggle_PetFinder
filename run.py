@@ -175,7 +175,6 @@ class ReproDataset(Dataset):
         image = image / 255  # convert to 0-1
         target = self.targets[idx]
 
-        # image = torch.tensor(image, dtype=torch.float)
         target = torch.tensor(target, dtype=torch.float)
         return image, target
 
