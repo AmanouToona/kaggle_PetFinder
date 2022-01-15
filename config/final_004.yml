@@ -1,0 +1,59 @@
+# not use meta
+global:
+  debug: false
+  seed: 42
+  device: cuda
+
+amp: true
+
+train:
+  max_epoch: 10
+  fold: 5
+  shuffle: true
+
+augmentation:
+  train:
+    SmallestMaxSize: {max_size: 384, p: 1.0}
+    RandomCrop: {height: 384, width: 384, p: 1.0}
+    ColorJitter: {}
+    VerticalFlip: {p: 0.5}
+    HorizontalFlip: {p: 0.5}
+    ToTensor: {always_apply: True}
+
+  valid:
+    SmallestMaxSize: {max_size: 384, p: 1.0}
+    CenterCrop: {height: 384, width: 384, p: 1.0}
+    ToTensor: {always_apply: True}
+
+dataset:
+  name: TrainDataset
+
+loader:
+  train: {batch_size: 16, shuffle: True, num_workers: 2, pin_memory: True, drop_last: True}
+  valid: {batch_size: 32, shuffle: False, num_workers: 2, pin_memory: True, drop_last: False}
+
+model:
+  name: NoMetaSwa
+  params:
+    base_model: swin_large_patch4_window7_384
+    pretrained: true
+    in_channels: 3
+    fc_dim: 1
+
+optimizer:
+  name: AdamW
+
+loss: BCEWithLogitsLoss
+
+scheduler:
+  name: OneCycleLR
+  params:
+    pct_start: 0.25
+    epochs: 10
+    max_lr: 2.0e-5
+
+accumulation: 2
+
+metrics:
+  - usr_rmse_score
+

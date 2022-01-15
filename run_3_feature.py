@@ -2,6 +2,7 @@
 import argparse
 import collections
 import sched
+from tabnanny import verbose
 from scipy.sparse.construct import rand
 import yaml
 
@@ -47,7 +48,7 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001, NoUseMeta, NoMetaSwa
+from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001, NoUseMeta, NoMetaSwa, UseMeta
 
 from timm.scheduler import CosineLRScheduler
 
@@ -55,9 +56,15 @@ from timm.scheduler import CosineLRScheduler
 from PIL import Image
 
 # kernel での実行時は以下の関数とモデルをべた書きする
-from utils import EarlyStopping, set_seed, clear_garbage, torch_faster
+from utils import EarlyStopping, early_stopping, set_seed, clear_garbage, torch_faster
+
+import joblib
+from lightgbm import LGBMRegressor
+import lightgbm as lgb
 
 kaggle_kernel = False  # kaggle kernel で実行する際の設定
+
+TRAINED_MODEL = Path("model_trained")
 
 # ====================================
 # Path
@@ -193,6 +200,52 @@ def divice_norm_bias(model):
         else:
             non_norm_bias_params.append(p)
     return norm_bias_params, non_norm_bias_params
+
+
+class TrainDatasetMeta(Dataset):
+    def __init__(self, df, train_mode=True, transform=Optional[List[str]]) -> None:
+        super().__init__()
+        self.df = df
+        self.df["file_path"] = self.df.apply(get_file_path, axis=1)
+        self.file_names = self.df["file_path"].values
+        self.train_mode = train_mode
+        self.transform = transform
+        dense_feature = [
+            "Subject Focus",
+            "Eyes",
+            "Face",
+            "Near",
+            "Action",
+            "Accessory",
+            "Group",
+            "Collage",
+            "Human",
+            "Occlusion",
+            "Info",
+            "Blur",
+        ]
+        self.meta_data = train_meta_data[dense_feature]
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        file_path = self.file_names[idx]
+        img = cv2.imread(str(file_path))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        meta = self.meta_data.iloc[idx]
+        meta = torch.tensor(meta, dtype=torch.float)
+
+        if self.transform:
+            for transform in self.transform:
+                img = transform(image=img)["image"]
+
+        if self.train_mode:
+            label = self.df[target_col]
+            label = torch.tensor(label.iloc[idx]).float()
+            return img, meta, label
+
+        return img, meta
 
 
 # ====================================
@@ -374,48 +427,11 @@ def train_fn(config, meta_data):
 
     # model -------------------------------------------------------------
     model = eval(config["model"]["name"])(**config["model"]["params"])
+    num = "1"
+    model_weight = "final_003_fold_00.pth"
+    d = torch.load(TRAINED_MODEL / model_weight, map_location=torch.device("cpu"))
+    model.load_state_dict(d)
     model.to(device)
-
-    # optimizer -------------------------------------------------------------
-    logger.debug("preparation optimizer")
-    if config["optimizer"]["name"] != "AdamW":
-        optimizer = getattr(torch.optim, config["optimizer"]["name"])(
-            model.parameters(), **config["optimizer"]["params"]
-        )
-    else:
-        norm_bias_params, non_norm_bias_params = divice_norm_bias(model)
-        optimizer = torch.optim.AdamW(
-            [{"params": norm_bias_params, "weight_decay": 0}, {"params": non_norm_bias_params, "weight_decay": 0.01}],
-            betas=(0.9, 0.99),
-            eps=1e-5,
-            lr=2e-5,
-            amsgrad=False,
-        )
-
-    if "swa" in config.keys():
-        use_swa = True
-        swa_model = AveragedModel(model)
-        swa_scheduler = SWALR(optimizer=optimizer, swa_lr=0.05)
-    else:
-        use_swa = False
-
-    # scheduler -------------------------------------------------------------
-    logger.debug("preparation scheduler")
-    if config["scheduler"]["name"] == "OneCycleLR":
-        config["scheduler"]["params"]["total_steps"] = (
-            int(np.ceil(len(train_loader) / config["accumulation"])) * config["train"]["max_epoch"]
-        )
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, **config["scheduler"]["params"])
-    elif config["scheduler"]["name"] == "LinearIncrease":
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda epoch: 10 ** (0.4 * epoch - 5))
-    elif config["scheduler"]["name"] == "CosineLRScheduler":
-        scheduler = CosineLRScheduler(
-            optimizer=optimizer, t_initial=config["train"]["max_epoch"], **config["scheduler"]["params"]
-        )
-    else:
-        scheduler = getattr(torch.optim.lr_scheduler, config["scheduler"]["name"])(
-            optimizer, **config["scheduler"]["params"]
-        )
 
     # loss
     logger.debug("preparation loss")
@@ -431,15 +447,6 @@ def train_fn(config, meta_data):
         use_early_stop = True
         early_stop = EarlyStopping(**config["early_stopping"]["params"])
 
-    # amp
-    if "amp" in config.keys():
-        use_amp = config["amp"]
-    else:
-        use_amp = False
-
-    # 高速化
-    torch_faster()
-
     # ====================================
     #  train loop
     # ====================================
@@ -454,68 +461,34 @@ def train_fn(config, meta_data):
         logger.info("\n")
         logger.info(f'epoch {epoch + 1:02} / {int(config["train"]["max_epoch"]):02} --------------------------------')
 
-        logger.info(f'lr                  : {optimizer.param_groups[0]["lr"]}')
-        report["lr"].append(optimizer.param_groups[0]["lr"])
-
-        model.train()
+        model.eval()
         running_loss = 0.0
-        optimizer.zero_grad()
-        scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
-        preds = []
-        truths = []
-        for step, (images, targets) in enumerate(tqdm(train_loader)):
-            images, targets = (
-                images.float().to(device, non_blocking=True),
-                targets.to(device, non_blocking=True).float(),
-            )
+        y_true_train = []
+        features_train = []
+        meta_train = []
+        with torch.no_grad():
+            for step, (images, meta, targets) in enumerate(tqdm(train_loader)):
+                y_true_train.extend(targets)
+                images, meta, targets = (
+                    images.float().to(device, non_blocking=True),
+                    meta.to(device, non_blocking=True).float(),
+                    targets.to(device, non_blocking=True).float(),
+                )
 
-            if MIXUP and np.random.rand(1) < r:
-                images, targets = mixup(images, targets, alpha)
+                y, feature, _ = model(images, meta)
+                features_train.append(feature.clone().detach().cpu().numpy())
+                meta_train.append(meta.clone().detach().cpu().numpy())
 
-            iteration += 1
+                del y
+                del feature
 
-            with torch.cuda.amp.autocast(enabled=use_amp):
-                y = model(images).view(-1)
-                loss = loss_func(y, targets)
-                loss /= accumulation
-            scaler.scale(loss).backward()
-            running_loss += float(loss.detach()) * accumulation
+            y_true_train = np.array(y_true_train)
+            meta_train = np.concatenate(meta_train, axis=0)
+            features_train = np.concatenate(features_train, axis=0)
+        print(f"{meta_train.shape=}, {features_train.shape=}")
 
-            if config["loss"] == "BCEWithLogitsLoss":
-                y = torch.sigmoid(y).clone().detach().to("cpu").numpy()
-            else:
-                y = y.clone().detach().to("cpu").numpy()
-
-            preds.extend(y)
-            truths.extend(targets.to("cpu").numpy())
-
-            images.detach()
-            targets.detach()
-            del images
-            del targets
-            del loss  # 計算グラフの削除によるメモリ節約
-            clear_garbage()
-
-            if (step + 1) % accumulation == 0 or (step + 1 == len(train_loader)):
-                scaler.step(optimizer)
-                scaler.update()
-                optimizer.zero_grad()
-                clear_garbage()
-
-                if config["scheduler"]["name"] in ["OneCycleLR", "CosineAnnealingWarmRestarts", "CosineAnnealingLR"]:
-                    scheduler.step()  # may be not true. recheck it
-
-        if "metrics" in config.keys():
-            res = calc_metrics(truths, preds, config["metrics"])
-
-            for key, value in res.items():
-                report[f"train_{key}"].append(value)
-
-        report["iteration"].append(iteration)
-        report["train_nn_loss"].append(running_loss / len(train_loader))
-
-        logger.info(f'train loss          : {report["train_nn_loss"][-1]:.8f}')
-        logger.info(f"iteration           : {iteration}")
+        x_tr = np.concatenate([features_train, meta_train], axis=1)
+        train_data = lgb.Dataset(x_tr, label=y_true_train)
 
         # ====================================
         #  valid loop
@@ -523,34 +496,65 @@ def train_fn(config, meta_data):
         logger.debug("start validation section")
         model.eval()
         running_loss = 0.0
-        preds = []
-        truths = []
+        y_true_valid = []
+        features_valid = []
+        meta_valid = []
         with torch.no_grad():
-            for images, targets in tqdm(valid_loader):
-                images, targets = (
+            for images, meta, targets in tqdm(valid_loader):
+                y_true_valid.extend(targets)
+
+                images, meta, targets = (
                     images.float().to(device, non_blocking=True),
+                    meta.to(device, non_blocking=True).float(),
                     targets.to(device, non_blocking=True).float(),
                 )
-                y = model(images).view(-1)
 
-                loss = loss_func(y, targets).detach()
-                running_loss += float(loss.detach())
+                y, feature, _ = model(images, meta)
+                features_valid.append(feature.clone().detach().cpu().numpy())
+                meta_valid.append(meta.clone().detach().cpu().numpy())
 
-                if config["loss"] == "BCEWithLogitsLoss":
-                    y = torch.sigmoid(y).to("cpu").numpy()
-                else:
-                    y = y.to("cpu").numpy()
+                del y
+                del feature
 
-                preds.extend(y)
-                truths.extend(targets.to("cpu").numpy())
+        y_true_valid = np.array(y_true_valid)
 
-                images.detach()
-                targets.detach()
-                del images
-                del targets
-                del loss  # 計算グラフの削除によるメモリ節約
+        meta_valid = np.concatenate(meta_valid, axis=0)
+        features_valid = np.concatenate(features_valid, axis=0)
 
-                clear_garbage()
+        print(f"{meta_valid.shape=}, {features_valid.shape=}")
+
+        x_va = np.concatenate([features_valid, meta_valid], axis=1)
+        valid_data = lgb.Dataset(x_va, label=y_true_valid)
+
+        lgb_param = {
+            "objective": "regression",
+            "metric": "rmse",
+            "boosting_type": "gbdt",
+            "learning_rate": 0.01,
+            "seed": 42,
+            "max_depth": -1,
+            "min_data_in_leaf": 10,
+            "verbosity": -1,
+        }
+
+        reg = LGBMRegressor()
+        reg.fit(x_tr, y_true_train)
+
+        clf = lgb.train(
+            lgb_param,
+            train_data,
+            10000,
+            valid_sets=[train_data, valid_data],
+            verbose_eval=10,
+            early_stopping_rounds=10,
+        )
+
+        pred = clf.predict(x_va)
+
+        joblib.dump(clf, "lgb_003_0.pkl")
+
+        score = usr_rmse_score(y_true_valid, pred)
+        print(f"{score=}")
 
         report["valid_nn_loss"].append(running_loss / len(valid_loader))
         logger.info(f'valid loss          : {report["valid_nn_loss"][-1]:.8f}')

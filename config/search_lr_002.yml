@@ -1,0 +1,68 @@
+# not use meta
+global:
+  debug: false
+  seed: 42
+  device: cuda
+
+amp: true
+
+train:
+  max_epoch: 8
+  fold: 5
+  shuffle: true
+
+augmentation:
+  train:
+    SmallestMaxSize: {max_size: 224, p: 1.0}
+    RandomCrop: {height: 224, width: 224, p: 1.0}
+    VerticalFlip: {p: 0.5}
+    HorizontalFlip: {p: 0.5}
+    ToTensor: {always_apply: True}
+
+  valid:
+    SmallestMaxSize: {max_size: 224, p: 1.0}
+    CenterCrop: {height: 224, width: 224, p: 1.0}
+    ToTensor: {always_apply: True}
+
+dataset:
+  name: TrainDataset
+
+loader:
+  train: {batch_size: 16, shuffle: True, num_workers: 2, pin_memory: True, drop_last: True}
+  valid: {batch_size: 32, shuffle: False, num_workers: 2, pin_memory: True, drop_last: False}
+
+model:
+  name: NoUseMeta
+  params:
+    base_model: swin_large_patch4_window7_224
+    pretrained: true
+    in_channels: 3
+    fc_dim: 1
+
+optimizer:
+  name: AdamW
+  params:
+    lr: 1.0e-3
+
+loss: BCEWithLogitsLoss
+
+scheduler:
+  name: StepLR
+  params:
+    gamma: 10
+    step_size: 1
+    last_epoch: -1
+
+# scheduler:
+#   name: CosineAnnealingWarmRestarts
+#   params:
+#     T_0: 6
+#     T_mult: 1
+#     eta_min: 1.0e-7
+
+
+accumulation: 2
+
+metrics:
+  - usr_rmse_score
+

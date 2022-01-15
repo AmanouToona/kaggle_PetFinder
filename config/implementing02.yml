@@ -8,47 +8,39 @@ amp: true
 
 train:
   max_epoch: 6
-  folds: 5
+  fold: 5
   shuffle: true
-
-resample:
-  method: stratified_resample
-  params:
-    n: 10
 
 augmentation:
   train:
-#    RandomResizedCrop: {height: 512, width: 512, scale: [0.9, 1.0]}
     Resize: { height: 256, width: 256 }
+    Normalize: {mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
     ToTensor: {always_apply: True}
   valid:
     Resize: {height: 256, width: 256}
+    Normalize: {mean: [0.485, 0.456, 0.406], std: [0.229, 0.224, 0.225]}
     ToTensor: {always_apply: True}
 
-batch_sampler:
-  sample_size: 1
-
 dataset:
-  name: GLR2021DataSetJPG
-  valid_resample:
-    n: 1
+  name: TrainDataset
 
 loader:
   train: {batch_size: 32, shuffle: True, num_workers: 2, pin_memory: True, drop_last: True}
   valid: {batch_size: 256, shuffle: False, num_workers: 2, pin_memory: True, drop_last: False}
 
 model:
-  name: LandmarkNet
+  name: NoUseMeta
   params:
-    num_classes: 81313
-    base_model: resnet50d
+    pretrained: true
+    in_channels: 3
+    fc_dim: 1
 
 optimizer:
   name: Adam
   params:
     lr: 1.0e-3
 
-loss: CrossEntropyLoss
+loss: MSELoss
 
 scheduler:
   name: CosineAnnealingWarmRestarts
@@ -59,4 +51,6 @@ scheduler:
 
 accumulation: 2
 
+metrics:
+  - mean_squared_error
 

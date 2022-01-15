@@ -47,7 +47,7 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001, NoUseMeta, NoMetaSwa
+from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001, NoUseMeta, NoMetaSwa, UseMeta
 
 from timm.scheduler import CosineLRScheduler
 
@@ -193,6 +193,52 @@ def divice_norm_bias(model):
         else:
             non_norm_bias_params.append(p)
     return norm_bias_params, non_norm_bias_params
+
+
+class TrainDatasetMeta(Dataset):
+    def __init__(self, df, train_mode=True, transform=Optional[List[str]]) -> None:
+        super().__init__()
+        self.df = df
+        self.df["file_path"] = self.df.apply(get_file_path, axis=1)
+        self.file_names = self.df["file_path"].values
+        self.train_mode = train_mode
+        self.transform = transform
+        dense_feature = [
+            "Subject Focus",
+            "Eyes",
+            "Face",
+            "Near",
+            "Action",
+            "Accessory",
+            "Group",
+            "Collage",
+            "Human",
+            "Occlusion",
+            "Info",
+            "Blur",
+        ]
+        self.meta_data = train_meta_data[dense_feature]
+
+    def __len__(self):
+        return len(self.df)
+
+    def __getitem__(self, idx):
+        file_path = self.file_names[idx]
+        img = cv2.imread(str(file_path))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        meta = self.meta_data.iloc[idx]
+        meta = torch.tensor(meta, dtype=torch.float)
+
+        if self.transform:
+            for transform in self.transform:
+                img = transform(image=img)["image"]
+
+        if self.train_mode:
+            label = self.df[target_col]
+            label = torch.tensor(label.iloc[idx]).float()
+            return img, meta, label
+
+        return img, meta
 
 
 # ====================================
@@ -463,9 +509,10 @@ def train_fn(config, meta_data):
         scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
         preds = []
         truths = []
-        for step, (images, targets) in enumerate(tqdm(train_loader)):
-            images, targets = (
+        for step, (images, meta, targets) in enumerate(tqdm(train_loader)):
+            images, meta, targets = (
                 images.float().to(device, non_blocking=True),
+                meta.to(device, non_blocking=True).float(),
                 targets.to(device, non_blocking=True).float(),
             )
 
@@ -475,7 +522,8 @@ def train_fn(config, meta_data):
             iteration += 1
 
             with torch.cuda.amp.autocast(enabled=use_amp):
-                y = model(images).view(-1)
+                y, feature, _ = model(images, meta)
+                y = y.view(-1)
                 loss = loss_func(y, targets)
                 loss /= accumulation
             scaler.scale(loss).backward()
@@ -494,6 +542,7 @@ def train_fn(config, meta_data):
             del images
             del targets
             del loss  # 計算グラフの削除によるメモリ節約
+            del feature
             clear_garbage()
 
             if (step + 1) % accumulation == 0 or (step + 1 == len(train_loader)):
@@ -526,12 +575,14 @@ def train_fn(config, meta_data):
         preds = []
         truths = []
         with torch.no_grad():
-            for images, targets in tqdm(valid_loader):
-                images, targets = (
+            for images, meta, targets in tqdm(valid_loader):
+                images, meta, targets = (
                     images.float().to(device, non_blocking=True),
+                    meta.to(device, non_blocking=True).float(),
                     targets.to(device, non_blocking=True).float(),
                 )
-                y = model(images).view(-1)
+                y, fature, _ = model(images, meta)
+                y = y.view(-1)
 
                 loss = loss_func(y, targets).detach()
                 running_loss += float(loss.detach())
