@@ -1,8 +1,6 @@
 # read config file
 import argparse
 import collections
-import sched
-from scipy.sparse.construct import rand
 import yaml
 
 import numpy as np
@@ -37,17 +35,26 @@ import gc
 
 from sklearn.metrics import mean_squared_error
 
-from typing import Collection, List, Dict, Tuple, Optional
+from typing import Collection, List, Dict, Tuple, Optional  # noqa
 
 from collections import defaultdict
 
-from scipy.sparse import coo_matrix
+from scipy.sparse import coo_matrix  # noqa
 import copy
 
 from tqdm import tqdm
 
 # not kaggle environment
-from models import SimpleModel, SimpleModelSig, SimpleModelDrop, Repro001, NoUseMeta, NoMetaSwa
+from models import (
+    SimpleModel,
+    SimpleModelSig,
+    SimpleModelDrop,
+    Repro001,
+    NoUseMeta,
+    NoMetaSwa,
+    NoMetaSwaLate,
+    NoUseMetaLate,
+)  # noqa
 
 from timm.scheduler import CosineLRScheduler
 
@@ -202,11 +209,11 @@ class ToTensor:
     def __init__(self, **kwargs):
         pass
 
-    def __call__(self, image: np.array) -> torch.tensor:
+    def __call__(self, image: np.ndarray) -> torch.Tensor:
         return ToTensorV2()(image=image)
 
 
-def mixup(data: torch.tensor, target: torch.tensor, alpha: float):
+def mixup(data: torch.Tensor, target: torch.Tensor, alpha: float):
     indices = torch.randperm(data.size(0))
     shuffled_data = data[indices]
     shuffled_target = target[indices]
@@ -463,6 +470,20 @@ def train_fn(config, meta_data):
         scaler = torch.cuda.amp.GradScaler(enabled=use_amp)
         preds = []
         truths = []
+
+        if "bn_eval" in config.keys() and config["bn_eval"]:
+
+            def set_batchnorm_eval(m):
+                classname = m.__class__.__name__
+                if classname.find("BatchNorm") != -1:
+                    m.eval()
+                    print(f"set{m} to eval mode")
+
+            model.apply(set_batchnorm_eval)
+
+        if "freeze" in config.keys() and config["freeze"]:
+            pass
+
         for step, (images, targets) in enumerate(tqdm(train_loader)):
             images, targets = (
                 images.float().to(device, non_blocking=True),

@@ -1,0 +1,73 @@
+# compare 001
+# set batch norm to eval mode when training.
+
+global:
+  debug: false
+  seed: 42
+  device: cuda
+
+amp: true
+
+train:
+  max_epoch: 15
+  fold: 5
+  shuffle: true
+
+bn_eval: true
+
+augmentation:
+  train:
+    SmallestMaxSize: { max_size: 224, p: 1.0 }
+    RandomCrop: { height: 224, width: 224, p: 1.0 }
+    VerticalFlip: { p: 0.5 }
+    HorizontalFlip: { p: 0.5 }
+    ToTensor: { always_apply: True }
+
+  valid:
+    SmallestMaxSize: { max_size: 224, p: 1.0 }
+    CenterCrop: { height: 224, width: 224, p: 1.0 }
+    ToTensor: { always_apply: True }
+
+dataset:
+  name: TrainDataset
+
+loader:
+  train:
+    {
+      batch_size: 16,
+      shuffle: True,
+      num_workers: 2,
+      pin_memory: True,
+      drop_last: True,
+    }
+  valid:
+    {
+      batch_size: 32,
+      shuffle: False,
+      num_workers: 2,
+      pin_memory: True,
+      drop_last: False,
+    }
+
+model:
+  name: NoUseMetaLate
+  params: {}
+
+optimizer:
+  name: AdamW
+
+loss: BCEWithLogitsLoss
+
+scheduler:
+  name: CosineLRScheduler
+  params:
+    warmup_t: 5
+    warmup_lr_init: 2.0e-8
+    lr_min: 2.0e-9
+
+accumulation: 2
+
+fold_type: skf
+
+metrics:
+  - usr_rmse_score

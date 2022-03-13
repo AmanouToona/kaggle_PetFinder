@@ -427,8 +427,7 @@ def train_fn(config, meta_data):
 
     # model -------------------------------------------------------------
     model = eval(config["model"]["name"])(**config["model"]["params"])
-    num = "1"
-    model_weight = "final_003_fold_00.pth"
+    model_weight = "final_003_fold_01.pth"
     d = torch.load(TRAINED_MODEL / model_weight, map_location=torch.device("cpu"))
     model.load_state_dict(d)
     model.to(device)
@@ -485,7 +484,6 @@ def train_fn(config, meta_data):
             y_true_train = np.array(y_true_train)
             meta_train = np.concatenate(meta_train, axis=0)
             features_train = np.concatenate(features_train, axis=0)
-        print(f"{meta_train.shape=}, {features_train.shape=}")
 
         x_tr = np.concatenate([features_train, meta_train], axis=1)
         train_data = lgb.Dataset(x_tr, label=y_true_train)
@@ -515,14 +513,8 @@ def train_fn(config, meta_data):
 
                 del y
                 del feature
-
         y_true_valid = np.array(y_true_valid)
-
-        meta_valid = np.concatenate(meta_valid, axis=0)
-        features_valid = np.concatenate(features_valid, axis=0)
-
-        print(f"{meta_valid.shape=}, {features_valid.shape=}")
-
+        print()
         x_va = np.concatenate([features_valid, meta_valid], axis=1)
         valid_data = lgb.Dataset(x_va, label=y_true_valid)
 
@@ -540,21 +532,12 @@ def train_fn(config, meta_data):
         reg = LGBMRegressor()
         reg.fit(x_tr, y_true_train)
 
+        pred = reg.predict(x_va)
+
+        print(x_va.shape, x_tr.shape)
         clf = lgb.train(
-            lgb_param,
-            train_data,
-            10000,
-            valid_sets=[train_data, valid_data],
-            verbose_eval=10,
-            early_stopping_rounds=10,
+            lgb_param, train_data, 10000, valid_set=[train_data, valid_data], verbose_eval=10, early_stopping=10
         )
-
-        pred = clf.predict(x_va)
-
-        joblib.dump(clf, "lgb_003_0.pkl")
-
-        score = usr_rmse_score(y_true_valid, pred)
-        print(f"{score=}")
 
         report["valid_nn_loss"].append(running_loss / len(valid_loader))
         logger.info(f'valid loss          : {report["valid_nn_loss"][-1]:.8f}')
