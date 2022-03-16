@@ -132,9 +132,11 @@ class NoMetaSwaLate(nn.Module):
 if __name__ == "__main__":
     # from functools import reduce
 
-    # m = NoMetaSwaLate()
-    # print(len(m.model.layers))
-    from pprint import pprint
+    m = NoMetaSwaLate()
+    m = NoUseMetaLate("efficientnet_b2")
+    print([i for i in m.modules()])
+    # print list ouf models
+    # from pprint import pprint
 
-    model_names = timm.list_models(pretrained=True)
-    pprint(model_names)
+    # model_names = timm.list_models(pretrained=True)
+    # pprint(model_names)

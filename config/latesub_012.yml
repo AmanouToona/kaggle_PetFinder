@@ -1,13 +1,10 @@
-# freeze model
+# = 001
 global:
   debug: false
   seed: 42
   device: cuda
 
 amp: true
-
-freeze: true
-bn_eval: true
 
 train:
   max_epoch: 15
@@ -20,18 +17,15 @@ augmentation:
     RandomCrop: { height: 224, width: 224, p: 1.0 }
     VerticalFlip: { p: 0.5 }
     HorizontalFlip: { p: 0.5 }
-    Normalize: { mean: [0.485, 0.456, 0.406], std:[0.229, 0.224, 0.225] }
     ToTensor: { always_apply: True }
 
   valid:
     SmallestMaxSize: { max_size: 224, p: 1.0 }
     CenterCrop: { height: 224, width: 224, p: 1.0 }
-    Normalize: { mean: [0.485, 0.456, 0.406], std:[0.229, 0.224, 0.225] }
     ToTensor: { always_apply: True }
 
 dataset:
   name: TrainDataset
-  normalize: True
 
 loader:
   train:
@@ -52,9 +46,9 @@ loader:
     }
 
 model:
-  name: NoUseMetaLate
+  name: NoMetaSwaLate
   params:
-    base_model: efficientnet_b2
+    base_model: swin_large_patch4_window7_224
     pretrained: true
     in_channels: 3
     fc_dim: 1

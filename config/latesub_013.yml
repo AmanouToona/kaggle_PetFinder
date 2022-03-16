@@ -1,4 +1,4 @@
-# freeze model
+# initialize
 global:
   debug: false
   seed: 42
@@ -6,8 +6,7 @@ global:
 
 amp: true
 
-freeze: true
-bn_eval: true
+bn_eval: false
 
 train:
   max_epoch: 15
@@ -31,7 +30,7 @@ augmentation:
 
 dataset:
   name: TrainDataset
-  normalize: True
+  normalize: False
 
 loader:
   train:
@@ -52,9 +51,9 @@ loader:
     }
 
 model:
-  name: NoUseMetaLate
+  name: NoMetaSwaLate
   params:
-    base_model: efficientnet_b2
+    base_model: swin_large_patch4_window7_224
     pretrained: true
     in_channels: 3
     fc_dim: 1

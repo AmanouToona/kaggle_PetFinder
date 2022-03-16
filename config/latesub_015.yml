@@ -1,4 +1,4 @@
-# freeze model
+# initialize
 global:
   debug: false
   seed: 42
@@ -6,8 +6,7 @@ global:
 
 amp: true
 
-freeze: true
-bn_eval: true
+bn_eval: False
 
 train:
   max_epoch: 15
@@ -31,7 +30,7 @@ augmentation:
 
 dataset:
   name: TrainDataset
-  normalize: True
+  normalize: False
 
 loader:
   train:

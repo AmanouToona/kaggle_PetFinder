@@ -72,7 +72,7 @@ scheduler:
     warmup_lr_init: 2.0e-8
     lr_min: 2.0e-9
 
-accumulation: 2
+accumulation: 1
 
 fold_type: skf
 

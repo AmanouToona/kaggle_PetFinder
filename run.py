@@ -45,7 +45,7 @@ import copy
 from tqdm import tqdm
 
 # not kaggle environment
-from models import (
+from models import (  # noqa
     SimpleModel,
     SimpleModelSig,
     SimpleModelDrop,
@@ -54,7 +54,7 @@ from models import (
     NoMetaSwa,
     NoMetaSwaLate,
     NoUseMetaLate,
-)  # noqa
+)
 
 from timm.scheduler import CosineLRScheduler
 
@@ -114,13 +114,14 @@ target_col = "Pawpularity"
 
 
 class TrainDataset(Dataset):
-    def __init__(self, df, train_mode=True, transform=Optional[List[str]]) -> None:
+    def __init__(self, df, train_mode=True, transform=Optional[List[str]], normalize=False) -> None:
         super().__init__()
         self.df = df
         self.df["file_path"] = self.df.apply(get_file_path, axis=1)
         self.file_names = self.df["file_path"].values
         self.train_mode = train_mode
         self.transform = transform
+        self.normalize = normalize
 
     def __len__(self):
         return len(self.df)
@@ -129,6 +130,8 @@ class TrainDataset(Dataset):
         file_path = self.file_names[idx]
         img = cv2.imread(str(file_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if self.normalize:
+            img = img / 255
 
         if self.transform:
             for transform in self.transform:
@@ -359,11 +362,19 @@ def train_fn(config, meta_data):
         valid_meta_data = None
 
     dataset = config["dataset"]["name"]
-    train_dataset = eval(dataset)(df=meta_data.iloc[train_idx], transform=transforms_train)
-    if valid_meta_data is not None:
-        valid_dataset = eval(dataset)(df=valid_meta_data, transform=transforms_valid)
+    if "normalize" in config["dataset"].keys() and config["dataset"]["normalize"]:
+        train_dataset = eval(dataset)(df=meta_data.iloc[train_idx], transform=transforms_train, normalize=True)
+        if valid_meta_data is not None:
+            valid_dataset = eval(dataset)(df=valid_meta_data, transform=transforms_valid, normalize=True)
+        else:
+            valid_dataset = eval(dataset)(df=meta_data.iloc[valid_idx], transform=transforms_valid, normalize=True)
+        pass
     else:
-        valid_dataset = eval(dataset)(df=meta_data.iloc[valid_idx], transform=transforms_valid)
+        train_dataset = eval(dataset)(df=meta_data.iloc[train_idx], transform=transforms_train)
+        if valid_meta_data is not None:
+            valid_dataset = eval(dataset)(df=valid_meta_data, transform=transforms_valid)
+        else:
+            valid_dataset = eval(dataset)(df=meta_data.iloc[valid_idx], transform=transforms_valid)
 
     logger.debug(f"train dataset: {len(train_dataset):7}")
     logger.debug(f"valid dataset: {len(valid_dataset):7}")
@@ -473,13 +484,16 @@ def train_fn(config, meta_data):
 
         if "bn_eval" in config.keys() and config["bn_eval"]:
 
-            def set_batchnorm_eval(m):
-                classname = m.__class__.__name__
-                if classname.find("BatchNorm") != -1:
+            for m in model.modules():
+                if isinstance(m, nn.BatchNorm2d):
                     m.eval()
-                    print(f"set{m} to eval mode")
-
-            model.apply(set_batchnorm_eval)
+                    m.requires_grad = False
+                    m.track_running_stats = False
+                elif isinstance(m, nn.Dropout):
+                    m.eval()
+                    m.requires_grad = False
+                    m.trach_running_stats = False
+                    print("drop out freeze")
 
         if "freeze" in config.keys() and config["freeze"]:
             pass

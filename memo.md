@@ -17,3 +17,20 @@ initialize の効き方の調査
 config: latesub_001, latesub_002
 xavier の初期化を入れると精度が向上するか？
 手元の CV では精度の向上が見られた。
+微妙な差。
+
+## 2
+
+batch norm to eval mode
+手元ではむしろ精度が悪化する。 バグってるかも。
+config: latesub_006, latesub_007
+batch size に依存する？
+config: latesub_008, latesub_009
+単純に accumulation を切っただけでは変化なし。 (batch 変えていないので、当然と言えば当然)
+
+そもそも、他の層に影響のあるプログラムになっていないか？ swim でためす。
+config 010: 001 に比べて精度が悪い。 initialize の影響？, config001 -> config 011: normalization 内包が精度がよいようだ。
+012: = 001 やはり悪い
+013: = 001 から normalize 削除 やや良くなる
+014: = 013 から bn_eval を false に変更
+013, 014 を比較すると、batch normalization を外したことで、過学習の挙動が見られるようになる。
