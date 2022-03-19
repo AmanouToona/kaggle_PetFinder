@@ -31,6 +31,7 @@ config: latesub_008, latesub_009
 そもそも、他の層に影響のあるプログラムになっていないか？ swim でためす。
 config 010: 001 に比べて精度が悪い。 initialize の影響？, config001 -> config 011: normalization 内包が精度がよいようだ。
 012: = 001 やはり悪い
-013: = 001 から normalize 削除 やや良くなる
+013: = 012 から normalize 削除 やや良くなる
 014: = 013 から bn_eval を false に変更
-013, 014 を比較すると、batch normalization を外したことで、過学習の挙動が見られるようになる。
+014, 015: model efficientnet02, bn_freeze あり、なし、で微妙に固めた方がよさそう。
+016, 017: model resnet50
